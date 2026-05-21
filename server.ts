@@ -29,6 +29,8 @@ async function startServer() {
           spaceBreath: { type: "number", description: "Amount of space ducking/breathing 0.0 to 1.0" },
           airShimmer: { type: "number", description: "High frequency shimmer texture 0.0 to 1.0" },
           safetyLimit: { type: "number", description: "Limiter threshold in dB, e.g. -1.0" },
+          dramaticMode: { type: "boolean", description: "Whether to enable experimental dramatic reactivity" },
+          dramaticAmount: { type: "number", description: "Amount of dramatic reactivity 0.0 to 1.0" },
           low: {
             type: "object",
             properties: {
@@ -67,7 +69,7 @@ async function startServer() {
             required: ["mix", "irType", "delayTime", "delayFeedback"]
           }
         },
-        required: ["name", "masterAmount", "motionAmount", "spaceBreath", "airShimmer", "safetyLimit", "low", "mid", "high", "space"]
+        required: ["name", "masterAmount", "motionAmount", "spaceBreath", "airShimmer", "safetyLimit", "dramaticMode", "dramaticAmount", "low", "mid", "high", "space"]
       };
 
       const response = await ai.models.generateContent({

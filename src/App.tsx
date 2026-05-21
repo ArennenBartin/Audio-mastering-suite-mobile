@@ -248,24 +248,32 @@ export default function App() {
                 </a>
 
                 {renderStats && (
-                  <div className="grid grid-cols-2 gap-2 mt-4">
-                    <div className="bg-black/50 p-2 rounded flex flex-col border border-white/5">
-                       <span className="text-[9px] uppercase tracking-widest opacity-40">In Peak</span>
-                       <span className="text-xs font-mono">{toDB(renderStats.inputPeak)} dB</span>
+                  <>
+                    <div className="grid grid-cols-2 gap-2 mt-4">
+                      <div className="bg-black/50 p-2 rounded flex flex-col border border-white/5">
+                         <span className="text-[9px] uppercase tracking-widest opacity-40">In Peak</span>
+                         <span className="text-xs font-mono">{toDB(renderStats.inputPeak)} dB</span>
+                      </div>
+                      <div className="bg-black/50 p-2 rounded flex flex-col border border-white/5">
+                         <span className="text-[9px] uppercase tracking-widest opacity-40">Out Peak</span>
+                         <span className={`text-xs font-mono font-bold ${renderStats.outputPeak > 0.98 ? 'text-red-500' : 'text-[#ff4e00]'}`}>{toDB(renderStats.outputPeak)} dB</span>
+                      </div>
+                      <div className="bg-black/50 p-2 rounded flex flex-col border border-white/5">
+                         <span className="text-[9px] uppercase tracking-widest opacity-40">In RMS</span>
+                         <span className="text-xs font-mono">{toDB(renderStats.inputRMS)} dB</span>
+                      </div>
+                      <div className="bg-black/50 p-2 rounded flex flex-col border border-white/5">
+                         <span className="text-[9px] uppercase tracking-widest opacity-40">Out RMS</span>
+                         <span className="text-xs font-mono">{toDB(renderStats.outputRMS)} dB</span>
+                      </div>
                     </div>
-                    <div className="bg-black/50 p-2 rounded flex flex-col border border-white/5">
-                       <span className="text-[9px] uppercase tracking-widest opacity-40">Out Peak</span>
-                       <span className={`text-xs font-mono font-bold ${renderStats.outputPeak > 0.98 ? 'text-red-500' : 'text-[#ff4e00]'}`}>{toDB(renderStats.outputPeak)} dB</span>
+                    <div className="mt-2 bg-black/50 p-2 rounded flex flex-col border border-white/5 relative overflow-hidden">
+                       <span className="text-[9px] uppercase tracking-widest opacity-40 mb-1">Motion Activity</span>
+                       <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden">
+                          <div className="h-full bg-red-500 transition-all duration-1000" style={{ width: `${Math.min(100, Math.max(0, renderStats.motionScore * 100))}%` }}></div>
+                       </div>
                     </div>
-                    <div className="bg-black/50 p-2 rounded flex flex-col border border-white/5">
-                       <span className="text-[9px] uppercase tracking-widest opacity-40">In RMS</span>
-                       <span className="text-xs font-mono">{toDB(renderStats.inputRMS)} dB</span>
-                    </div>
-                    <div className="bg-black/50 p-2 rounded flex flex-col border border-white/5">
-                       <span className="text-[9px] uppercase tracking-widest opacity-40">Out RMS</span>
-                       <span className="text-xs font-mono">{toDB(renderStats.outputRMS)} dB</span>
-                    </div>
-                  </div>
+                  </>
                 )}
               </div>
             ) : (
@@ -345,6 +353,21 @@ export default function App() {
                 <SliderControl label="Space Breath" value={selectedPreset.spaceBreath} min={0} max={1} step={0.05} onChange={(v: number) => updateGlobal('spaceBreath', v)} format={(v: number) => `${Math.round(v * 100)}%`} />
                 <SliderControl label="Air / Shimmer" value={selectedPreset.airShimmer} min={0} max={1} step={0.05} onChange={(v: number) => updateGlobal('airShimmer', v)} format={(v: number) => `${Math.round(v * 100)}%`} />
                 <SliderControl label="Safety Limit" value={selectedPreset.safetyLimit} min={-6} max={0} step={0.1} onChange={(v: number) => updateGlobal('safetyLimit', v)} format={(v: number) => `${v.toFixed(1)} dB`} />
+                
+                <div className="mt-8 border border-red-500/30 bg-red-950/20 p-4 rounded-xl">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="text-sm uppercase tracking-widest text-red-400 font-bold flex items-center gap-2">
+                       <Wand2 className="w-4 h-4" /> Dramatic Mode
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" className="sr-only peer" checked={selectedPreset.dramaticMode} onChange={(e) => updateGlobal('dramaticMode', e.target.checked)} />
+                      <div className="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-500"></div>
+                    </label>
+                  </div>
+                  {selectedPreset.dramaticMode && (
+                     <SliderControl label="Dramatic Amount" value={selectedPreset.dramaticAmount} min={0} max={1} step={0.05} onChange={(v: number) => updateGlobal('dramaticAmount', v)} format={(v: number) => `${Math.round(v * 100)}%`} />
+                  )}
+                </div>
               </div>
             </div>
           </section>

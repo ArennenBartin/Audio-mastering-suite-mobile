@@ -11,6 +11,8 @@ export interface Preset {
   spaceBreath: number;
   airShimmer: number;
   safetyLimit: number;
+  dramaticMode: boolean;
+  dramaticAmount: number;
   low: BandPreset;
   mid: BandPreset;
   high: BandPreset;

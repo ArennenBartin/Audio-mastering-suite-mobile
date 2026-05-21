@@ -4,6 +4,7 @@ import { Preset } from './types';
 export interface AnalysisScore {
   inputPeak: number;
   inputRMS: number;
+  maxMotion: number;
   envLow: AudioBuffer;
   envMid: AudioBuffer;
   envHigh: AudioBuffer;
@@ -17,6 +18,7 @@ export interface RenderStats {
   inputRMS: number;
   outputPeak: number;
   outputRMS: number;
+  motionScore: number;
 }
 
 export interface RenderResult {
@@ -122,6 +124,7 @@ export async function analyzeAudio(buffer: AudioBuffer): Promise<AnalysisScore> 
 
   let pl=0, pm=0, ph=0, pf=0;
   let prevF=0, prevM=0, prevH=0;
+  let maxMo = 0;
   for (let i = 0; i < cLen; i++) {
     const start = i * hop;
     const end = Math.min(start + hop, length);
@@ -139,6 +142,7 @@ export async function analyzeAudio(buffer: AudioBuffer): Promise<AnalysisScore> 
 
     const cvT = Math.max(0, cvF - prevF) * 15;
     const cvMo = (Math.abs(cvM - prevM) + Math.abs(cvH - prevH)) * 25;
+    if (cvMo > maxMo) maxMo = cvMo;
     
     prevF = cvF; prevM = cvM; prevH = cvH;
 
@@ -163,7 +167,7 @@ export async function analyzeAudio(buffer: AudioBuffer): Promise<AnalysisScore> 
   smoothPass(lOut, 0.01); smoothPass(mOut, 0.01); smoothPass(hOut, 0.01);
   smoothPass(fOut, 0.005); smoothPass(tOut, 0.02); smoothPass(moOut, 0.005);
 
-  return { inputPeak, inputRMS, envLow, envMid, envHigh, envFull, envTransient, envMotion };
+  return { inputPeak, inputRMS, maxMotion: maxMo, envLow, envMid, envHigh, envFull, envTransient, envMotion };
 }
 
 function createLR4(ctx: BaseAudioContext, freq: number, type: 'lowpass' | 'highpass') {
@@ -192,11 +196,42 @@ export async function renderAudio(buffer: AudioBuffer, preset: Preset, analysis:
   
   function createMod(base: number, modNode: AudioNode, depth: number) {
     const vca = oCtx.createGain();
-    vca.gain.value = base;
+    vca.gain.value = 0;
+    
+    // Create a DC offset for the base value
+    const dc = oCtx.createConstantSource();
+    dc.offset.value = base / 10.0;
+    dc.start(0);
+
+    // Scale the depth to match the DC offset headroom
     const depthNode = oCtx.createGain();
-    depthNode.gain.value = depth;
+    depthNode.gain.value = depth / 10.0;
     modNode.connect(depthNode);
-    depthNode.connect(vca.gain);
+
+    // Sum base and modulation
+    const sumEnv = oCtx.createGain();
+    sumEnv.gain.value = 1.0;
+    dc.connect(sumEnv);
+    depthNode.connect(sumEnv);
+
+    // Rectifier: prevent gain from ever going negative down the signal path
+    // If ducking forces gain < 0, it phase-inverts and compounding noise/volume occurs!
+    const clampCurve = new Float32Array(8192);
+    for (let i = 0; i < 8192; i++) {
+      const x = (i / 8191) * 2 - 1;
+      clampCurve[i] = Math.max(0, x);
+    }
+
+    const shaper = oCtx.createWaveShaper();
+    shaper.curve = clampCurve;
+    sumEnv.connect(shaper);
+
+    // Scale back up to actual target gain amounts
+    const scaleUp = oCtx.createGain();
+    scaleUp.gain.value = 10.0;
+    shaper.connect(scaleUp);
+    scaleUp.connect(vca.gain);
+
     return vca;
   }
 
@@ -218,38 +253,82 @@ export async function renderAudio(buffer: AudioBuffer, preset: Preset, analysis:
   safeIn.connect(midSplitH.in); midSplitH.out.connect(midSplitL.in);
   safeIn.connect(highSplit.in);
 
-  // LOW BAND: Thickener and Kick Tighter
-  const lowBaseIn = oCtx.createGain(); lowBaseIn.gain.value = preset.low.gain;
+  // Dramatic Multipliers
+  const dMult = preset.dramaticMode ? preset.dramaticAmount * 2.0 : 1.0;
+  
+  // LOW BAND
+  const lowBaseIn = oCtx.createGain(); 
+  lowBaseIn.gain.value = preset.low.gain;
   lowSplit.out.connect(lowBaseIn);
-  const lowThickVCA = createMod(1.0 + preset.motionAmount, envLow, -preset.motionAmount * 2.0);
+  
+  const lowThickVCA = createMod(1.0 + preset.motionAmount * dMult, envLow, -preset.motionAmount * 2.0 * dMult);
   lowBaseIn.connect(lowThickVCA);
-  const lowTransDuck = createMod(1.0, envTrans, -preset.motionAmount);
+  const lowTransDuck = createMod(1.0, envTrans, -preset.motionAmount * dMult);
   lowThickVCA.connect(lowTransDuck);
   const lowSat = oCtx.createWaveShaper(); lowSat.curve = makeDistortionCurve(preset.low.drive * 0.5); lowSat.oversample = '2x';
   lowTransDuck.connect(lowSat);
 
-  // MID BAND: Presence Ducking and Living Tone
+  // Dramatic Low Parallel (Reactive Bass Pulse)
+  const lowParallel = oCtx.createGain(); lowParallel.gain.value = 0;
+  if (preset.dramaticMode) {
+     const lpDrive = oCtx.createWaveShaper(); lpDrive.curve = makeDistortionCurve(0.8);
+     const lpMod = createMod(1.0, envLow, -2.0 * preset.dramaticAmount); // swells when weak
+     const lpClamp = createMod(1.0, envTrans, -3.0 * preset.dramaticAmount); // clamps on transients
+     lowSplit.out.connect(lpDrive);
+     lpDrive.connect(lpMod); lpMod.connect(lpClamp);
+     lpClamp.connect(lowParallel);
+     lowParallel.gain.value = preset.dramaticAmount * 0.8;
+  }
+
+  // MID BAND
   const midBaseIn = oCtx.createGain(); midBaseIn.gain.value = preset.mid.gain;
   midSplitL.out.connect(midBaseIn);
-  const midDuck = createMod(1.0 + preset.motionAmount * 0.5, envMid, -preset.motionAmount * 1.5);
+  const midDuck = createMod(1.0 + preset.motionAmount * 0.5 * dMult, envMid, -preset.motionAmount * 1.5 * dMult);
   midBaseIn.connect(midDuck);
   const midFilter = oCtx.createBiquadFilter(); midFilter.type = 'peaking'; midFilter.frequency.value = preset.mid.filterCutoff; midFilter.Q.value = 0.5; midFilter.gain.value = 1.0; 
-  const midMotionMod = oCtx.createGain(); midMotionMod.gain.value = preset.motionAmount * 800; 
+  const midMotionMod = oCtx.createGain(); midMotionMod.gain.value = preset.motionAmount * 800 * dMult; 
   envMotion.connect(midMotionMod); midMotionMod.connect(midFilter.frequency);
   midDuck.connect(midFilter);
   const midSat = oCtx.createWaveShaper(); midSat.curve = makeDistortionCurve(preset.mid.drive * 0.3);
   midFilter.connect(midSat);
 
-  // HIGH BAND: Air Enhancer & Shimmer 
+  // Dramatic Mid Parallel (Living Resonators)
+  const midParallel = oCtx.createGain(); midParallel.gain.value = 0;
+  if (preset.dramaticMode) {
+     const mRes1 = oCtx.createBiquadFilter(); mRes1.type = 'bandpass'; mRes1.frequency.value = 600; mRes1.Q.value = 4.0;
+     const mRes2 = oCtx.createBiquadFilter(); mRes2.type = 'bandpass'; mRes2.frequency.value = 1500; mRes2.Q.value = 4.0;
+     const mResMod = oCtx.createGain(); mResMod.gain.value = 1500 * preset.dramaticAmount;
+     envMotion.connect(mResMod); mResMod.connect(mRes1.frequency); mResMod.connect(mRes2.frequency);
+     
+     const mResVCA = createMod(0.0, envMid, preset.dramaticAmount);
+     midSplitL.out.connect(mRes1); midSplitL.out.connect(mRes2);
+     mRes1.connect(mResVCA); mRes2.connect(mResVCA);
+     mResVCA.connect(midParallel);
+     midParallel.gain.value = preset.dramaticAmount * 1.5;
+  }
+
+  // HIGH BAND
   const highBaseIn = oCtx.createGain(); highBaseIn.gain.value = preset.high.gain;
   highSplit.out.connect(highBaseIn);
-  const highShimmerVCA = createMod(1.0 + preset.airShimmer, envFull, -preset.airShimmer * 2.0);
+  const highShimmerVCA = createMod(1.0 + preset.airShimmer * dMult, envFull, -preset.airShimmer * 2.0 * dMult);
   highBaseIn.connect(highShimmerVCA);
   const highSat = oCtx.createWaveShaper(); highSat.curve = makeDistortionCurve(preset.high.drive * 0.4);
   highShimmerVCA.connect(highSat);
 
+  // Dramatic High Parallel (Reactive Shimmer/Air)
+  const highParallel = oCtx.createGain(); highParallel.gain.value = 0;
+  if (preset.dramaticMode) {
+     const hExciter = oCtx.createWaveShaper(); hExciter.curve = makeDistortionCurve(0.9);
+     const hHp = oCtx.createBiquadFilter(); hHp.type = 'highpass'; hHp.frequency.value = 6000;
+     const hMod = createMod(1.0, envFull, -2.5 * preset.dramaticAmount); // fades in quiet
+     highSplit.out.connect(hExciter); hExciter.connect(hHp); hHp.connect(hMod);
+     hMod.connect(highParallel);
+     highParallel.gain.value = preset.dramaticAmount * 1.0;
+  }
+
   const sum = oCtx.createGain(); sum.gain.value = preset.masterAmount;
   lowSat.connect(sum); midSat.connect(sum); highSat.connect(sum);
+  lowParallel.connect(sum); midParallel.connect(sum); highParallel.connect(sum);
 
   // GLOBAL SPACE
   const fxBus = oCtx.createGain();
@@ -257,18 +336,44 @@ export async function renderAudio(buffer: AudioBuffer, preset: Preset, analysis:
   const spaceMix = preset.space.mix * preset.spaceBreath;
   
   const reverbWet = oCtx.createGain(); reverbWet.gain.value = spaceMix;
+  let rbMod: GainNode | null = null;
+  if (preset.dramaticMode) {
+      rbMod = createMod(spaceMix, envFull, -3.0 * preset.dramaticAmount); // reverb grows in quiet gaps
+      reverbWet.gain.value = 1.0;
+  }
+  
   const convolver = oCtx.createConvolver(); convolver.buffer = generateImpulseResponse(oCtx, 2.5, 2.0, preset.space.irType);
-  fxBus.connect(convolver); convolver.connect(reverbWet);
+  fxBus.connect(convolver); 
+  if (rbMod) convolver.connect(rbMod); else convolver.connect(reverbWet);
 
   const delay = oCtx.createDelay(10.0); delay.delayTime.value = preset.space.delayTime;
   const delayFeedback = oCtx.createGain(); delayFeedback.gain.value = preset.space.delayFeedback;
+  
   const delayDamp = oCtx.createBiquadFilter(); delayDamp.type = 'lowpass'; delayDamp.frequency.value = 3000;
   const delayWet = oCtx.createGain(); delayWet.gain.value = spaceMix * 0.8;
-  fxBus.connect(delay); delay.connect(delayDamp); delayDamp.connect(delayFeedback); delayFeedback.connect(delay); delay.connect(delayWet);
+  
+  fxBus.connect(delay); delay.connect(delayDamp); 
+  
+  if (preset.dramaticMode) {
+      const fbMod = createMod(preset.space.delayFeedback + 0.4 * preset.dramaticAmount, envFull, -0.8 * preset.dramaticAmount);
+      delayDamp.connect(fbMod); fbMod.connect(delay);
+  } else {
+      delayDamp.connect(delayFeedback); delayFeedback.connect(delay);
+  }
+  
+  delay.connect(delayWet);
 
   // Space Ducking
-  const spaceDucker = createMod(1.0, envFull, -0.8 * preset.spaceBreath); // Ducks when loud
-  reverbWet.connect(spaceDucker); delayWet.connect(spaceDucker);
+  const spaceDucker = createMod(1.0, envFull, -0.8 * preset.spaceBreath * dMult); // Ducks when loud
+  if (rbMod) rbMod.connect(spaceDucker); else reverbWet.connect(spaceDucker);
+  delayWet.connect(spaceDucker);
+
+  if (preset.dramaticMode) {
+      // Space bloom layer: trigger by drops in energy (transient offset maybe? Just simple mod is fine)
+      const bloomMod = createMod(0.0, envTrans, 1.5 * preset.dramaticAmount);
+      fxBus.connect(bloomMod);
+      bloomMod.connect(delay);
+  }
 
   const masterBus = oCtx.createGain();
   sum.connect(masterBus); spaceDucker.connect(masterBus);
@@ -306,6 +411,6 @@ export async function renderAudio(buffer: AudioBuffer, preset: Preset, analysis:
 
   return {
     wav: toWav(renderedBuffer),
-    stats: { inputPeak: analysis.inputPeak, inputRMS: analysis.inputRMS, outputPeak, outputRMS }
+    stats: { inputPeak: analysis.inputPeak, inputRMS: analysis.inputRMS, outputPeak, outputRMS, motionScore: analysis.maxMotion }
   };
 }
