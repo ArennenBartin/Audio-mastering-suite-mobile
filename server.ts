@@ -24,8 +24,11 @@ async function startServer() {
         type: "object",
         properties: {
           name: { type: "string" },
-          intensity: { type: "number", description: "Global gain intensity 0.5 to 2.0" },
-          reactivity: { type: "number", description: "Modulation depth responding to audio envelopes 0.0 to 1.0" },
+          masterAmount: { type: "number", description: "Global gain intensity 0.5 to 2.0" },
+          motionAmount: { type: "number", description: "Modulation depth responding to audio envelopes 0.0 to 1.0" },
+          spaceBreath: { type: "number", description: "Amount of space ducking/breathing 0.0 to 1.0" },
+          airShimmer: { type: "number", description: "High frequency shimmer texture 0.0 to 1.0" },
+          safetyLimit: { type: "number", description: "Limiter threshold in dB, e.g. -1.0" },
           low: {
             type: "object",
             properties: {
@@ -64,7 +67,7 @@ async function startServer() {
             required: ["mix", "irType", "delayTime", "delayFeedback"]
           }
         },
-        required: ["name", "intensity", "reactivity", "low", "mid", "high", "space"]
+        required: ["name", "masterAmount", "motionAmount", "spaceBreath", "airShimmer", "safetyLimit", "low", "mid", "high", "space"]
       };
 
       const response = await ai.models.generateContent({

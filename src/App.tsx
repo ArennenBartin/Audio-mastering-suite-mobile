@@ -2,7 +2,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import { UploadCloud, Download, Play, Music, Wand2, Volume2, Settings2, BellOff } from 'lucide-react';
 import { Preset } from './types';
 import { BASE_PRESETS } from './Presets';
-import { analyzeAudio, renderAudio } from './audio';
+import { analyzeAudio, renderAudio, RenderStats } from './audio';
+
+function toDB(linear: number) {
+  if (linear <= 0) return '-∞';
+  return (20 * Math.log10(linear)).toFixed(1);
+}
 
 function SliderControl({ label, value, min, max, step, onChange, format = (v: number) => v.toString() }: any) {
   return (
@@ -28,6 +33,7 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [renderedWavUrl, setRenderedWavUrl] = useState<string | null>(null);
   const [renderedPresetName, setRenderedPresetName] = useState<string>('');
+  const [renderStats, setRenderStats] = useState<RenderStats | null>(null);
   
   const [selectedPreset, setSelectedPreset] = useState<Preset>(BASE_PRESETS[0]);
   const [prompt, setPrompt] = useState('');
@@ -86,10 +92,11 @@ export default function App() {
       // Delay so UI can render processing state
       await new Promise(r => setTimeout(r, 50));
       const analysis = await analyzeAudio(audioBuffer);
-      const wav = await renderAudio(audioBuffer, selectedPreset, analysis);
+      const { wav, stats } = await renderAudio(audioBuffer, selectedPreset, analysis);
       const blob = new Blob([wav], { type: 'audio/wav' });
       setRenderedWavUrl(URL.createObjectURL(blob));
       setRenderedPresetName(selectedPreset.name);
+      setRenderStats(stats);
     } catch (err: any) {
       console.error(err);
       alert('Error rendering audio: ' + err.message);
@@ -239,6 +246,27 @@ export default function App() {
                 >
                   <Download className="w-4 h-4" /> Export WAV
                 </a>
+
+                {renderStats && (
+                  <div className="grid grid-cols-2 gap-2 mt-4">
+                    <div className="bg-black/50 p-2 rounded flex flex-col border border-white/5">
+                       <span className="text-[9px] uppercase tracking-widest opacity-40">In Peak</span>
+                       <span className="text-xs font-mono">{toDB(renderStats.inputPeak)} dB</span>
+                    </div>
+                    <div className="bg-black/50 p-2 rounded flex flex-col border border-white/5">
+                       <span className="text-[9px] uppercase tracking-widest opacity-40">Out Peak</span>
+                       <span className={`text-xs font-mono font-bold ${renderStats.outputPeak > 0.98 ? 'text-red-500' : 'text-[#ff4e00]'}`}>{toDB(renderStats.outputPeak)} dB</span>
+                    </div>
+                    <div className="bg-black/50 p-2 rounded flex flex-col border border-white/5">
+                       <span className="text-[9px] uppercase tracking-widest opacity-40">In RMS</span>
+                       <span className="text-xs font-mono">{toDB(renderStats.inputRMS)} dB</span>
+                    </div>
+                    <div className="bg-black/50 p-2 rounded flex flex-col border border-white/5">
+                       <span className="text-[9px] uppercase tracking-widest opacity-40">Out RMS</span>
+                       <span className="text-xs font-mono">{toDB(renderStats.outputRMS)} dB</span>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <button
@@ -312,11 +340,11 @@ export default function App() {
               </div>
               <div>
                 <div className="text-xs uppercase tracking-[0.2em] opacity-40 mb-5 font-bold border-b border-white/10 pb-2">Dynamics Engine</div>
-                <SliderControl label="Reactivity" value={selectedPreset.reactivity} min={0} max={1} step={0.05} onChange={(v: number) => updateGlobal('reactivity', v)} format={(v: number) => `${Math.round(v * 100)}%`} />
-                <SliderControl label="Intensity" value={selectedPreset.intensity} min={0.5} max={2.0} step={0.1} onChange={(v: number) => updateGlobal('intensity', v)} format={(v: number) => `${v.toFixed(1)}x`} />
-                <div className="mt-4 text-[10px] text-white/30 tracking-wide font-mono leading-relaxed">
-                  <strong>Reactivity</strong> computes pure envelope tracking to duck/expand effects actively. <strong>Intensity</strong> scales the total saturation and global weight.
-                </div>
+                <SliderControl label="Master Amount" value={selectedPreset.masterAmount} min={0.5} max={2.0} step={0.1} onChange={(v: number) => updateGlobal('masterAmount', v)} format={(v: number) => `${v.toFixed(1)}x`} />
+                <SliderControl label="Motion Amount" value={selectedPreset.motionAmount} min={0} max={1} step={0.05} onChange={(v: number) => updateGlobal('motionAmount', v)} format={(v: number) => `${Math.round(v * 100)}%`} />
+                <SliderControl label="Space Breath" value={selectedPreset.spaceBreath} min={0} max={1} step={0.05} onChange={(v: number) => updateGlobal('spaceBreath', v)} format={(v: number) => `${Math.round(v * 100)}%`} />
+                <SliderControl label="Air / Shimmer" value={selectedPreset.airShimmer} min={0} max={1} step={0.05} onChange={(v: number) => updateGlobal('airShimmer', v)} format={(v: number) => `${Math.round(v * 100)}%`} />
+                <SliderControl label="Safety Limit" value={selectedPreset.safetyLimit} min={-6} max={0} step={0.1} onChange={(v: number) => updateGlobal('safetyLimit', v)} format={(v: number) => `${v.toFixed(1)} dB`} />
               </div>
             </div>
           </section>

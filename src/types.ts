@@ -6,8 +6,11 @@ export interface BandPreset {
 
 export interface Preset {
   name: string;
-  intensity: number;
-  reactivity: number;
+  masterAmount: number;
+  motionAmount: number;
+  spaceBreath: number;
+  airShimmer: number;
+  safetyLimit: number;
   low: BandPreset;
   mid: BandPreset;
   high: BandPreset;
