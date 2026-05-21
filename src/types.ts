@@ -6,17 +6,15 @@ export interface BandPreset {
 
 export interface Preset {
   name: string;
+  intensity: number;
+  reactivity: number;
   low: BandPreset;
   mid: BandPreset;
   high: BandPreset;
-  convolver: {
+  space: {
     mix: number;
     irType: "Pillowy" | "Tape" | "Cathedral" | "Tight" | "Air" | "Wide";
+    delayTime: number;
+    delayFeedback: number;
   };
-  delay: {
-    mix: number;
-    time: number;
-    feedback: number;
-  };
-  envToDrive: number;
 }

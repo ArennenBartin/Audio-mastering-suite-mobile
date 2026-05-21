@@ -24,11 +24,13 @@ async function startServer() {
         type: "object",
         properties: {
           name: { type: "string" },
+          intensity: { type: "number", description: "Global gain intensity 0.5 to 2.0" },
+          reactivity: { type: "number", description: "Modulation depth responding to audio envelopes 0.0 to 1.0" },
           low: {
             type: "object",
             properties: {
               gain: { type: "number", description: "Gain 0.0 to 3.0" },
-              drive: { type: "number", description: "WaveShaper drive 0.0 to 1.0" },
+              drive: { type: "number", description: "Saturation drive 0.0 to 1.0" },
               filterCutoff: { type: "number", description: "Filter cutoff around 150-300Hz" }
             },
             required: ["gain", "drive", "filterCutoff"]
@@ -37,7 +39,7 @@ async function startServer() {
             type: "object",
             properties: {
               gain: { type: "number", description: "Gain 0.0 to 3.0" },
-              drive: { type: "number", description: "WaveShaper drive 0.0 to 1.0" },
+              drive: { type: "number", description: "Saturation drive 0.0 to 1.0" },
               filterCutoff: { type: "number", description: "Filter cutoff around 1000-3000Hz" }
             },
             required: ["gain", "drive", "filterCutoff"]
@@ -46,31 +48,23 @@ async function startServer() {
             type: "object",
             properties: {
               gain: { type: "number", description: "Gain 0.0 to 3.0" },
-              drive: { type: "number", description: "WaveShaper drive 0.0 to 1.0" },
+              drive: { type: "number", description: "Saturation drive 0.0 to 1.0" },
               filterCutoff: { type: "number", description: "Filter cutoff around 6000-12000Hz" }
             },
             required: ["gain", "drive", "filterCutoff"]
           },
-          convolver: {
+          space: {
             type: "object",
             properties: {
-              mix: { type: "number", description: "0.0 to 1.0" },
-              irType: { type: "string", enum: ["Pillowy", "Tape", "Cathedral", "Tight", "Air", "Wide"] }
+              mix: { type: "number", description: "Reverb/Delay Mix 0.0 to 1.0" },
+              irType: { type: "string", enum: ["Pillowy", "Tape", "Cathedral", "Tight", "Air", "Wide"] },
+              delayTime: { type: "number", description: "Delay time in seconds 0.05 to 2.0" },
+              delayFeedback: { type: "number", description: "Delay feedback 0.0 to 0.95" }
             },
-            required: ["mix", "irType"]
-          },
-          delay: {
-            type: "object",
-            properties: {
-              mix: { type: "number", description: "0.0 to 1.0" },
-              time: { type: "number", description: "Delay time in seconds 0.01 to 2.0" },
-              feedback: { type: "number", description: "Feedback ratio 0.0 to 0.95" }
-            },
-            required: ["mix", "time", "feedback"]
-          },
-          envToDrive: { type: "number", description: "Envelope follower response to WaveShaper drive, 0.0 to 1.0" }
+            required: ["mix", "irType", "delayTime", "delayFeedback"]
+          }
         },
-        required: ["name", "low", "mid", "high", "convolver", "delay", "envToDrive"]
+        required: ["name", "intensity", "reactivity", "low", "mid", "high", "space"]
       };
 
       const response = await ai.models.generateContent({

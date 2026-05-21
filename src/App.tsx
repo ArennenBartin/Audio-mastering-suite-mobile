@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { UploadCloud, Download, Play, Music, Wand2, Volume2, Settings2, BellOff } from 'lucide-react';
 import { Preset } from './types';
 import { BASE_PRESETS } from './Presets';
-import { renderAudio } from './audio';
+import { analyzeAudio, renderAudio } from './audio';
 
 function SliderControl({ label, value, min, max, step, onChange, format = (v: number) => v.toString() }: any) {
   return (
@@ -28,7 +28,6 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [renderedWavUrl, setRenderedWavUrl] = useState<string | null>(null);
   const [renderedPresetName, setRenderedPresetName] = useState<string>('');
-  const [bpm, setBpm] = useState<number | null>(null);
   
   const [selectedPreset, setSelectedPreset] = useState<Preset>(BASE_PRESETS[0]);
   const [prompt, setPrompt] = useState('');
@@ -64,7 +63,6 @@ export default function App() {
     
     setAudioFile(file);
     setRenderedWavUrl(null);
-    setBpm(null);
     setIsProcessing(true);
     
     try {
@@ -87,11 +85,11 @@ export default function App() {
     try {
       // Delay so UI can render processing state
       await new Promise(r => setTimeout(r, 50));
-      const { wav, bpm } = await renderAudio(audioBuffer, selectedPreset);
+      const analysis = await analyzeAudio(audioBuffer);
+      const wav = await renderAudio(audioBuffer, selectedPreset, analysis);
       const blob = new Blob([wav], { type: 'audio/wav' });
       setRenderedWavUrl(URL.createObjectURL(blob));
       setRenderedPresetName(selectedPreset.name);
-      setBpm(Math.round(bpm));
     } catch (err: any) {
       console.error(err);
       alert('Error rendering audio: ' + err.message);
@@ -171,8 +169,8 @@ export default function App() {
         </div>
         <div className="flex items-center gap-6">
           <div className="flex flex-col sm:items-end items-center">
-             <span className="text-[10px] uppercase opacity-50">Detected BPM</span>
-             <span className="text-xl font-mono text-[#ff4e00]">{bpm ? bpm : '---'}</span>
+             <span className="text-[10px] uppercase opacity-50">Motion Analysis</span>
+             <span className="text-xl font-mono text-[#ff4e00]">{isProcessing ? 'SCANNING' : (renderedWavUrl ? 'READY' : 'IDLE')}</span>
           </div>
         </div>
       </header>
@@ -204,7 +202,6 @@ export default function App() {
                         setAudioFile(null);
                         setAudioBuffer(null);
                         setRenderedWavUrl(null);
-                        setBpm(null);
                       }}
                       className="bg-white/10 hover:bg-white/20 text-white text-[10px] uppercase tracking-widest px-4 py-2 rounded-full transition-colors border border-white/10"
                     >
@@ -227,7 +224,6 @@ export default function App() {
               <div className="bg-white/5 rounded-3xl p-6 border border-white/5 flex flex-col gap-4">
                 <div className="flex justify-between items-center">
                   <span className="text-[10px] uppercase tracking-widest opacity-40">Output Ready</span>
-                  {bpm && <span className="text-[10px] uppercase font-mono text-[#ff4e00]">{bpm} BPM</span>}
                 </div>
                 
                 <audio 
@@ -294,19 +290,18 @@ export default function App() {
           <section className="bg-white/5 px-4 py-5 sm:p-6 rounded-2xl border border-white/5 flex flex-col shrink-0 gap-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12">
               <div>
-                <div className="text-xs uppercase tracking-[0.2em] opacity-40 mb-5 font-bold border-b border-white/10 pb-2">Space (Delay & Reverb)</div>
-                <SliderControl label="Delay Mix" value={selectedPreset.delay.mix} min={0} max={1} step={0.05} onChange={(v: number) => updateEffect('delay', 'mix', v)} format={(v: number) => `${Math.round(v * 100)}%`} />
-                <SliderControl label="Delay Time" value={selectedPreset.delay.time} min={0.05} max={2.0} step={0.05} onChange={(v: number) => updateEffect('delay', 'time', v)} format={(v: number) => `${v.toFixed(2)}s`} />
-                <SliderControl label="Delay Fdbk" value={selectedPreset.delay.feedback} min={0} max={0.95} step={0.05} onChange={(v: number) => updateEffect('delay', 'feedback', v)} format={(v: number) => `${Math.round(v * 100)}%`} />
-                <SliderControl label="Reverb Mix" value={selectedPreset.convolver.mix} min={0} max={1} step={0.05} onChange={(v: number) => updateEffect('convolver', 'mix', v)} format={(v: number) => `${Math.round(v * 100)}%`} />
+                <div className="text-xs uppercase tracking-[0.2em] opacity-40 mb-5 font-bold border-b border-white/10 pb-2">Space Module</div>
+                <SliderControl label="Reverb & Delay Mix" value={selectedPreset.space.mix} min={0} max={1} step={0.05} onChange={(v: number) => updateEffect('space', 'mix', v)} format={(v: number) => `${Math.round(v * 100)}%`} />
+                <SliderControl label="Delay Time" value={selectedPreset.space.delayTime} min={0.05} max={2.0} step={0.05} onChange={(v: number) => updateEffect('space', 'delayTime', v)} format={(v: number) => `${v.toFixed(2)}s`} />
+                <SliderControl label="Delay Fdbk" value={selectedPreset.space.delayFeedback} min={0} max={0.95} step={0.05} onChange={(v: number) => updateEffect('space', 'delayFeedback', v)} format={(v: number) => `${Math.round(v * 100)}%`} />
                 
                 <div className="flex flex-col mb-1 mt-3">
                   <div className="flex justify-between text-[10px] uppercase font-mono mb-2">
                     <span className="opacity-60">Reverb Type</span>
                   </div>
                   <select 
-                    value={selectedPreset.convolver.irType} 
-                    onChange={e => updateEffect('convolver', 'irType', e.target.value)}
+                    value={selectedPreset.space.irType} 
+                    onChange={e => updateEffect('space', 'irType', e.target.value)}
                     className="w-full bg-black border border-white/10 rounded-xl p-3 text-xs tracking-widest uppercase text-white focus:outline-none focus:border-[#ff4e00]/50 appearance-none cursor-pointer"
                   >
                     {["Pillowy", "Tape", "Cathedral", "Tight", "Air", "Wide"].map(ir => (
@@ -316,10 +311,11 @@ export default function App() {
                 </div>
               </div>
               <div>
-                <div className="text-xs uppercase tracking-[0.2em] opacity-40 mb-5 font-bold border-b border-white/10 pb-2">Modulation Matrix</div>
-                <SliderControl label="Env to Drive" value={selectedPreset.envToDrive} min={0} max={1} step={0.05} onChange={(v: number) => updateGlobal('envToDrive', v)} format={(v: number) => `${Math.round(v * 100)}%`} />
+                <div className="text-xs uppercase tracking-[0.2em] opacity-40 mb-5 font-bold border-b border-white/10 pb-2">Dynamics Engine</div>
+                <SliderControl label="Reactivity" value={selectedPreset.reactivity} min={0} max={1} step={0.05} onChange={(v: number) => updateGlobal('reactivity', v)} format={(v: number) => `${Math.round(v * 100)}%`} />
+                <SliderControl label="Intensity" value={selectedPreset.intensity} min={0.5} max={2.0} step={0.1} onChange={(v: number) => updateGlobal('intensity', v)} format={(v: number) => `${v.toFixed(1)}x`} />
                 <div className="mt-4 text-[10px] text-white/30 tracking-wide font-mono leading-relaxed">
-                  Controls how much the audio's dynamic envelope follower modulates the WaveShaper drive intensity in real-time.
+                  <strong>Reactivity</strong> computes pure envelope tracking to duck/expand effects actively. <strong>Intensity</strong> scales the total saturation and global weight.
                 </div>
               </div>
             </div>
